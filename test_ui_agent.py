@@ -4,6 +4,8 @@
 # uiautomation/Ollama.)
 import ui_agent
 import ui_automation as ui
+import vlm_actions
+import vlm_agent
 
 from ui_agent import (_parse_send_goal, _dest_phrase, _open_dest,
                       _ensure_dest_window, _contact_candidates)
@@ -82,7 +84,7 @@ def _fake_env(monkeypatch):
     monkeypatch.setattr(ui, "set_text", lambda w, t: True)
     # set_text_search — для строки поиска (новая функция, тоже 2 аргумента)
     monkeypatch.setattr(ui, "set_text_search", lambda w, t: True)
-    monkeypatch.setattr(ui_agent, "_vlm_fallback", lambda w, g, log: False)
+    monkeypatch.setattr(ui_agent, "_vlm_fallback", lambda w, g, log, h: "fail")
 
 
 def test_run_ui_task_finds_contact_click_then_sends(monkeypatch):
@@ -118,12 +120,14 @@ def test_run_ui_task_searches_contact_when_no_click(monkeypatch):
                         lambda: [("Дима – (11817)", "MainWindow", "Telegram.exe")])
     monkeypatch.setattr(ui, "click_name", lambda w, t: False)
     monkeypatch.setattr(ui, "find_search_edit", lambda w: {"role": "edit", "name": "Поиск", "y": 20})
-    monkeypatch.setattr(ui, "set_text", lambda w, t, s: (typed.append(t) or True))
+    searched = []
+    monkeypatch.setattr(ui, "set_text_search", lambda w, t: (searched.append(t) or True))
+    monkeypatch.setattr(ui, "set_text", lambda w, t: (typed.append(t) or True))
     monkeypatch.setattr(ui, "send_enter", lambda w: (typed.append("ENTER") or True))
     monkeypatch.setattr(ui, "find_message_input", lambda w: {"role": "edit", "y": 200})
     status, desc = ui_agent.run_ui_task("напиши Ане в телеграм: привет")
     assert status == "done", desc
-    assert typed and typed[0], "искала контакт в поиске"
+    assert searched == ["Ане"], "искала контакт в поиске как есть"
     assert "ENTER" in typed
     assert "привет" in typed
 
@@ -138,7 +142,7 @@ def test_run_ui_task_stuck_when_no_composer_after_search(monkeypatch):
     monkeypatch.setattr(ui, "find_message_input", lambda w: None)  # композер нет
     monkeypatch.setattr(ui, "click_by_text", lambda w, t: False)
     monkeypatch.setattr(ui, "find_search_edit", lambda w: {"role": "edit", "name": "Поиск", "y": 20})
-    monkeypatch.setattr(ui, "set_text", lambda w, t, s: (sent.append(t) or True))
+    monkeypatch.setattr(ui, "set_text", lambda w, t: (sent.append(t) or True))
     monkeypatch.setattr(ui, "send_enter", lambda w: (sent.append("ENTER") or True))
     status, desc = ui_agent.run_ui_task("напиши Диме в телеграм: встретимся в 12")
     assert status == "stuck"
@@ -167,7 +171,7 @@ def test_run_ui_task_opens_dest_app_when_window_missing(monkeypatch):
                         lambda app: (opened.append(app) or "done", "ок"))
     monkeypatch.setattr(ui, "click_name", lambda w, t: True)
     monkeypatch.setattr(ui, "click_by_text", lambda w, t: True)
-    monkeypatch.setattr(ui, "set_text", lambda w, t, s: True)
+    monkeypatch.setattr(ui, "set_text", lambda w, t: True)
     monkeypatch.setattr(ui, "send_enter", lambda w: True)
     status, desc = ui_agent.run_ui_task("напиши Диме в телеграм: встретимся в 12")
     assert opened == ["telegram"], "должна сама открыть telegram, а не писать в терминал"
@@ -229,7 +233,7 @@ def test_run_ui_task_clicks_exact_form_then_base(monkeypatch):
     monkeypatch.setattr(ui, "click_name",
                         lambda w, t: (clicked.append(t) or False) if t == "Диме"
                         else (clicked.append(t) or True))
-    monkeypatch.setattr(ui, "set_text", lambda w, t, s: True)
+    monkeypatch.setattr(ui, "set_text", lambda w, t: True)
     monkeypatch.setattr(ui, "send_enter", lambda w: True)
     status, desc = ui_agent.run_ui_task("напиши Диме в телеграм: встретимся в 12")
     assert status == "done", desc
@@ -247,7 +251,9 @@ def test_search_uses_base_contact_form(monkeypatch):
                         lambda: [("Telegram", "MainWindow", "Telegram.exe")])
     monkeypatch.setattr(ui, "click_name", lambda w, t: False)
     monkeypatch.setattr(ui, "find_search_edit", lambda w: {"role": "edit", "name": "Поиск", "y": 20})
-    monkeypatch.setattr(ui, "find_message_input", lambda w: {"role": "edit", "y": 200})
+    # Композер появляется только после поиска базовой формы («Дима»)
+    monkeypatch.setattr(ui, "find_message_input",
+                        lambda w: {"role": "edit", "y": 200} if "Дима" in search_typed else None)
     # Сначала вводим как есть ("Диме"), потом фолбэк на базовую форму ("Дима")
     search_typed = []
     monkeypatch.setattr(ui, "set_text_search", lambda w, t: (search_typed.append(t) or True))
@@ -415,14 +421,14 @@ def test_locate_contact_skips_when_chat_already_open(monkeypatch):
 
 def test_locate_contact_search_tries_forms_until_composer(monkeypatch):
     """Поиск: сначала вводим contact как есть («Ане»), если не сработало —
-    пробуем именительную форму («Аня»). Композер появляется на 2-й попытке."""
+    пробуем формы-кандидаты («Ана», «Аня»). Композер появляется на 3-й попытке."""
     typed = []
-    comp = iter([None, {"role": "edit", "y": 200}])  # композер появляется на 2-й форме
+    comp = iter([None, None, {"role": "edit", "y": 200}])  # композер — на 3-й форме
     _fake_env(monkeypatch)
     monkeypatch.setattr(ui, "click_name", lambda w, t: False)
     monkeypatch.setattr(ui, "find_search_edit",
                         lambda w: {"role": "edit", "name": "Поиск", "y": 20})
-    monkeypatch.setattr(ui, "set_text", lambda w, t, s: (typed.append(t) or True))
+    monkeypatch.setattr(ui, "set_text_search", lambda w, t: (typed.append(t) or True))
     monkeypatch.setattr(ui, "send_enter", lambda w: True)
     monkeypatch.setattr(ui, "find_message_input", lambda w: next(comp))
     ok = ui_agent._locate_contact("Тест", "Ане", [])
@@ -439,7 +445,7 @@ def test_locate_contact_search_false_when_no_composer(monkeypatch):
     monkeypatch.setattr(ui, "click_name", lambda w, t: False)
     monkeypatch.setattr(ui, "find_search_edit",
                         lambda w: {"role": "edit", "name": "Поиск", "y": 20})
-    monkeypatch.setattr(ui, "set_text", lambda w, t, s: True)
+    monkeypatch.setattr(ui, "set_text_search", lambda w, t: True)
     monkeypatch.setattr(ui, "send_enter", lambda w: True)
     monkeypatch.setattr(ui, "find_message_input", lambda w: None)
     assert ui_agent._locate_contact("Тест", "Диме", []) is False
@@ -468,31 +474,49 @@ CHAT_ELEMS = [
 ]
 
 
-def test_locate_contact_visual_found_by_vlm(monkeypatch):
-    """Визуальный поиск через VLM: скриншот делается, координаты есть, клик успешен."""
-    _fake_env(monkeypatch)
+def _stub_vlm_click(monkeypatch, result):
+    """Подменяем VLM-часть: без скриншотов, без Ollama и без настоящих кликов."""
+    calls = []
 
-    # Мокаем find_element_on_screen - возвращает координаты
-    monkeypatch.setattr(
-        ui_agent._act if hasattr(ui_agent, '_act') else __import__('actions'),
-        'find_element_on_screen',
-        lambda desc: ("found", {"x": 100, "y": 200, "width": 50, "height": 30})
-    )
+    def fake_click(description, **kwargs):
+        calls.append((description, kwargs))
+        return result
 
-    # Мокаем pyautogui.click
-    monkeypatch.setattr("pyautogui.click", lambda x, y: None)
+    monkeypatch.setattr(vlm_actions, "vlm_click", fake_click)
+    monkeypatch.setattr(vlm_agent, "region_of_window", lambda w: None)
+    monkeypatch.setattr(ui, "restore_window", lambda w: True)
     monkeypatch.setattr("time.sleep", lambda s: None)
+    return calls
 
-    # Мокаем find_message_input чтобы вернуть None (не найдено)
-    monkeypatch.setattr(ui, "find_message_input", lambda w: None)
 
+def test_locate_contact_visual_clicks_and_opens_chat(monkeypatch):
+    """VLM нашла контакт, клик выполнен, композер появился -> True."""
+    _fake_env(monkeypatch)
+    calls = _stub_vlm_click(monkeypatch, {"ok": True, "x": 100, "y": 200, "message": "VLM: клик"})
     log = []
-    # VLM найдёт, но клик не откроет чат (find_message_input None)
-    ok = ui_agent._locate_contact_visual("Тест", "Саша", log)
+    assert ui_agent._locate_contact_visual("Тест", "Саша", log) is True
+    assert any("VLM кликнула по контакту" in x for x in log)
+    assert "Саша" in calls[0][0], "в описании для модели есть имя контакта"
+    assert calls[0][1]["use_uia"] is False, "UIA уже пробовали выше по цепочке"
 
-    assert any("VLM нашёл контакт" in x for x in log)
-    # Чат не открылся, т.к. find_message_input вернул None
-    assert ok is False
+
+def test_locate_contact_visual_click_without_composer_is_false(monkeypatch):
+    """Клик прошёл, но чат не открылся (композера нет) -> честный False."""
+    _fake_env(monkeypatch)
+    _stub_vlm_click(monkeypatch, {"ok": True, "x": 100, "y": 200, "message": "VLM: клик"})
+    monkeypatch.setattr(ui, "find_message_input", lambda w: None)
+    log = []
+    assert ui_agent._locate_contact_visual("Тест", "Саша", log) is False
+    assert any("VLM кликнула по контакту" in x for x in log)
+
+
+def test_locate_contact_visual_not_found(monkeypatch):
+    """Модель не нашла контакт на экране -> False, клика не было."""
+    _fake_env(monkeypatch)
+    _stub_vlm_click(monkeypatch, {"ok": False, "message": "Не нашла на экране"})
+    log = []
+    assert ui_agent._locate_contact_visual("Тест", "Саша", log) is False
+    assert any("визуальный поиск не нашёл" in x for x in log)
 
 
 def _mock_ui(monkeypatch, elems, click=None, set_text=None):
@@ -511,7 +535,7 @@ def _mock_ui(monkeypatch, elems, click=None, set_text=None):
     monkeypatch.setattr(ui, "set_text", set_text or (lambda w, t: True))
     # set_text_search — для строки поиска (новая функция, тоже 2 аргумента)
     monkeypatch.setattr(ui, "set_text_search", set_text or (lambda w, t: True))
-    monkeypatch.setattr(ui_agent, "_vlm_fallback", lambda w, g, log: False)
+    monkeypatch.setattr(ui_agent, "_vlm_fallback", lambda w, g, log, h: "fail")
 
 
 def test_run_ui_task_finds_and_clicks(monkeypatch):
@@ -556,15 +580,69 @@ def test_run_ui_task_blocks_secret_payload(monkeypatch):
     assert "секрет" in desc
 
 
-def test_vlm_fallback_calls_describe_screen_directly(monkeypatch):
-    """Bug B: describe_screen — синхронная функция (строку), asyncio.run вокруг
-    неё падал «An asyncio.Future, a coroutine or an awaitable is required»."""
-    monkeypatch.setattr(ui_agent, "describe_screen",
-                        lambda q: "Вижу кнопку «Отправить»")
+def _stub_vlm_step(monkeypatch, plan, click=None):
+    """Подменяем планировщик шага и клик: без скриншотов, Ollama и реальной мыши."""
+    clicks = []
+
+    def fake_click(description, **kwargs):
+        clicks.append(description)
+        return click or {"ok": True, "verified": True, "message": "VLM: клик"}
+
+    def fake_plan(goal, history, region=None):
+        if isinstance(plan, Exception):
+            raise plan
+        return plan
+
+    monkeypatch.setattr(vlm_agent, "plan_next_click", fake_plan)
+    monkeypatch.setattr(vlm_agent, "region_of_window", lambda w: None)
+    monkeypatch.setattr(vlm_actions, "vlm_click", fake_click)
+    monkeypatch.setattr(ui, "restore_window", lambda w: True)
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    return clicks
+
+
+def test_vlm_fallback_clicks_target_from_model(monkeypatch):
+    clicks = _stub_vlm_step(monkeypatch, {"done": False, "target": "кнопка Отправить"})
+    log, history = [], []
+    assert ui_agent._vlm_fallback("Окно", "цель", log, history) == "clicked"
+    assert clicks == ["кнопка Отправить"]
+    assert history == ["кнопка Отправить"]
+    assert any("VLM кликнула" in x for x in log)
+
+
+def test_vlm_fallback_done_when_model_says_goal_reached(monkeypatch):
+    clicks = _stub_vlm_step(monkeypatch, {"done": True, "target": None})
+    assert ui_agent._vlm_fallback("Окно", "цель", [], []) == "done"
+    assert clicks == []
+
+
+def test_vlm_fallback_refuses_repeated_target(monkeypatch):
+    """Модель предлагает тот же элемент второй раз — защита от петли."""
+    clicks = _stub_vlm_step(monkeypatch, {"done": False, "target": "кнопка Отправить"})
+    assert ui_agent._vlm_fallback("Окно", "цель", [], ["кнопка Отправить"]) == "fail"
+    assert clicks == []
+
+
+def test_vlm_fallback_fails_when_screen_did_not_react(monkeypatch):
+    _stub_vlm_step(monkeypatch, {"done": False, "target": "кнопка"},
+                   click={"ok": True, "verified": False, "message": "VLM: клик"})
     log = []
-    ok = ui_agent._vlm_fallback("Окно", "цель", log)
-    assert ok is True                     # раньше: False из-за тип-ошибки asyncio
-    assert any("Вижу кнопку" in x for x in log)
+    assert ui_agent._vlm_fallback("Окно", "цель", log, []) == "fail"
+    assert any("не отреагировал" in x for x in log)
+
+
+def test_vlm_fallback_respects_click_limit(monkeypatch):
+    clicks = _stub_vlm_step(monkeypatch, {"done": False, "target": "новый"})
+    history = [f"э{i}" for i in range(ui_agent.MAX_VLM_CLICKS)]
+    assert ui_agent._vlm_fallback("Окно", "цель", [], history) == "fail"
+    assert clicks == []
+
+
+def test_vlm_fallback_survives_model_error(monkeypatch):
+    _stub_vlm_step(monkeypatch, RuntimeError("сбой VLM"))
+    log = []
+    assert ui_agent._vlm_fallback("Окно", "цель", log, []) == "fail"
+    assert any("сбой VLM" in x for x in log)
 
 
 def test_run_ui_task_not_done_when_vlm_failed(monkeypatch):
@@ -574,11 +652,7 @@ def test_run_ui_task_not_done_when_vlm_failed(monkeypatch):
     real_vlm = ui_agent._vlm_fallback
     _mock_ui(monkeypatch, [], click=lambda w, t: False)
     monkeypatch.setattr(ui_agent, "_vlm_fallback", real_vlm)
-
-    def boom(q):
-        raise RuntimeError("сбой VLM")
-
-    monkeypatch.setattr(ui_agent, "describe_screen", boom)
+    _stub_vlm_step(monkeypatch, RuntimeError("сбой VLM"))
     status, _ = ui_agent.run_ui_task("сделай что-нибудь необычное")
     assert status != "done"               # раньше: ложный done «Сделала: не смогла»
 
@@ -588,8 +662,8 @@ def test_run_ui_task_not_done_on_look_only(monkeypatch):
     real_vlm = ui_agent._vlm_fallback
     _mock_ui(monkeypatch, [], click=lambda w, t: False)
     monkeypatch.setattr(ui_agent, "_vlm_fallback", real_vlm)
-    monkeypatch.setattr(ui_agent, "describe_screen",
-                        lambda q: "Вижу пустой экран, элементов нет")
+    # Модель заявляет «готово», но не было ни одного клика/ввода — это не «сделала»
+    _stub_vlm_step(monkeypatch, {"done": True, "target": None})
     status, _ = ui_agent.run_ui_task("найти кнопку Отправить")
     assert status != "done"
 
