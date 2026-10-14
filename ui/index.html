@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Ева</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/3.4.1/tailwind.min.js"></script>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; }
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+</style>
+</head>
+<body class="bg-slate-900 text-slate-100 h-screen flex flex-col overflow-hidden">
+
+  <!-- Шапка со статусом -->
+  <div class="flex items-center justify-between px-4 py-3 border-b border-slate-700 shrink-0">
+    <h1 class="text-lg font-semibold">🤖 Ева</h1>
+    <div class="flex items-center gap-3 text-sm">
+      <span id="brain-text" class="text-xs text-slate-400">🧠…</span>
+      <div id="voice-badge" class="hidden items-center gap-1.5">
+        <span id="voice-dot" class="w-2.5 h-2.5 rounded-full bg-gray-500"></span>
+        <span id="voice-text" class="text-xs text-slate-400">голос</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <span id="status-dot" class="w-2.5 h-2.5 rounded-full bg-gray-500"></span>
+        <span id="status-text">проверка...</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Табы -->
+  <div class="flex border-b border-slate-700 shrink-0">
+    <button id="tab-log-btn" class="flex-1 py-2 text-sm font-medium border-b-2 border-blue-500">📜 Лог</button>
+    <button id="tab-chat-btn" class="relative flex-1 py-2 text-sm font-medium border-b-2 border-transparent text-slate-400">💬 Чат
+      <span id="chat-badge" class="hidden absolute top-1.5 right-1.5 bg-red-500 text-white text-[10px] leading-none rounded-full px-1.5 py-1 min-w-[16px] text-center">1</span>
+    </button>
+    <button id="tab-settings-btn" class="flex-1 py-2 text-sm font-medium border-b-2 border-transparent text-slate-400">⚙️ Настройки</button>
+  </div>
+
+  <!-- Вкладка: Лог -->
+  <div id="tab-log" class="flex-1 overflow-y-auto p-3 space-y-2">
+    <div id="log-empty" class="text-slate-500 text-sm text-center mt-8">Пока нет событий — жду подключения...</div>
+    <div id="log-list" class="space-y-1.5"></div>
+  </div>
+
+  <!-- Вкладка: Настройки -->
+  <div id="tab-settings" class="hidden flex-1 overflow-y-auto p-4 space-y-5">
+
+    <div class="space-y-3">
+      <h2 class="text-xs uppercase tracking-wide text-slate-500">Подключение к серверу</h2>
+      <div>
+        <label class="block text-sm text-slate-400 mb-1">Адрес сервера (WebSocket)</label>
+        <input id="input-url" type="text" placeholder="wss://mnemonic-yqyf.onrender.com/ws/eva"
+          class="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+      </div>
+      <div>
+        <label class="block text-sm text-slate-400 mb-1">Секрет агента (EVA_AGENT_SECRET)</label>
+        <input id="input-secret" type="password" placeholder="тот же секрет, что и на сервере"
+          class="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+      </div>
+      <div>
+        <label class="block text-sm text-slate-400 mb-1">Твой Telegram ID (владелец)</label>
+        <input id="input-owner-id" type="text" placeholder="например, 123456789"
+          class="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+      </div>
+      <div>
+        <label class="block text-sm text-slate-400 mb-1">Имя агента (необязательно)</label>
+        <input id="input-agent-id" type="text" placeholder="default"
+          class="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+      </div>
+    </div>
+
+    <div class="space-y-3 pt-2 border-t border-slate-700">
+      <div class="flex items-center justify-between">
+        <h2 class="text-xs uppercase tracking-wide text-slate-500">Голос (необязательно)</h2>
+        <button id="toggle-listen-btn" class="text-xs px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 transition">
+          ▶️ Включить прослушивание
+        </button>
+      </div>
+      <div>
+        <label class="block text-sm text-slate-400 mb-1">Путь к папке модели Vosk (alphacephei.com/vosk/models)</label>
+        <input id="input-vosk-model-path" type="text" placeholder="C:\Users\user\Desktop\eva_agent\vosk-model-small-ru-0.22"
+          class="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+      </div>
+      <div>
+        <label class="block text-sm text-slate-400 mb-1">Groq API-ключ (console.groq.com) — для распознавания речи</label>
+        <input id="input-groq-key" type="password" placeholder="свой ключ Groq для агента"
+          class="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+      </div>
+      <div>
+        <label class="block text-sm text-slate-400 mb-1">Голос TTS (edge-tts)</label>
+        <input id="input-tts-voice" type="text" placeholder="ru-RU-SvetlanaNeural"
+          class="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+      </div>
+    </div>
+
+    <div class="space-y-3 pt-2 border-t border-slate-700">
+      <h2 class="text-xs uppercase tracking-wide text-slate-500">Уведомления</h2>
+      <label class="flex items-center justify-between cursor-pointer">
+        <span class="text-sm text-slate-400">Звук при напоминании</span>
+        <input id="input-notif-sound" type="checkbox"
+          class="w-4 h-4 accent-blue-600">
+      </label>
+      <label class="flex items-center justify-between cursor-pointer">
+        <span class="text-sm text-slate-400">Системные уведомления (тост)</span>
+        <input id="input-notif-toast" type="checkbox"
+          class="w-4 h-4 accent-blue-600">
+      </label>
+    </div>
+
+    <button id="save-btn" class="w-full bg-blue-600 hover:bg-blue-500 rounded py-2 text-sm font-medium transition">
+      Сохранить
+    </button>
+    <div id="save-confirm" class="hidden text-green-400 text-sm text-center">✅ Сохранено</div>
+  </div>
+
+  <!-- Вкладка: Чат -->
+  <div id="tab-chat" class="hidden flex-1 flex flex-col overflow-hidden">
+    <div id="chat-list" class="flex-1 overflow-y-auto p-3 space-y-2"></div>
+    <div class="flex gap-2 p-3 border-t border-slate-700 shrink-0">
+      <input id="chat-input" type="text" placeholder="Напиши Еве..."
+        class="flex-1 bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+      <button id="chat-send-btn" class="bg-blue-600 hover:bg-blue-500 rounded px-4 py-2 text-sm font-medium transition">➤</button>
+    </div>
+  </div>
+
+<script>
+const api = () => window.pywebview.api;
+
+// ----- Табы -----
+const tabLogBtn = document.getElementById('tab-log-btn');
+const tabSettingsBtn = document.getElementById('tab-settings-btn');
+const tabChatBtn = document.getElementById('tab-chat-btn');
+const tabLog = document.getElementById('tab-log');
+const tabSettings = document.getElementById('tab-settings');
+const tabChat = document.getElementById('tab-chat');
+
+function showTab(name) {
+  tabLog.classList.toggle('hidden', name !== 'log');
+  tabSettings.classList.toggle('hidden', name !== 'settings');
+  tabChat.classList.toggle('hidden', name !== 'chat');
+  tabLogBtn.classList.toggle('border-blue-500', name === 'log');
+  tabLogBtn.classList.toggle('border-transparent', name !== 'log');
+  tabLogBtn.classList.toggle('text-slate-400', name !== 'log');
+  tabSettingsBtn.classList.toggle('border-blue-500', name === 'settings');
+  tabSettingsBtn.classList.toggle('border-transparent', name !== 'settings');
+  tabSettingsBtn.classList.toggle('text-slate-400', name !== 'settings');
+  tabChatBtn.classList.toggle('border-blue-500', name === 'chat');
+  tabChatBtn.classList.toggle('border-transparent', name !== 'chat');
+  tabChatBtn.classList.toggle('text-slate-400', name !== 'chat');
+  currentTab = name;
+  if (name === 'chat') { chatUnread = 0; renderBadge(); }
+}
+tabLogBtn.addEventListener('click', () => showTab('log'));
+tabSettingsBtn.addEventListener('click', () => showTab('settings'));
+tabChatBtn.addEventListener('click', () => showTab('chat'));
+
+// ----- Статус -----
+async function refreshStatus() {
+  try {
+    const status = await api().get_status();
+    const dot = document.getElementById('status-dot');
+    const text = document.getElementById('status-text');
+    if (!status.configured) {
+      dot.className = 'w-2.5 h-2.5 rounded-full bg-gray-500';
+      text.textContent = 'не настроено';
+    } else if (status.connected) {
+      dot.className = 'w-2.5 h-2.5 rounded-full bg-green-500';
+      text.textContent = 'на связи';
+    } else {
+      dot.className = 'w-2.5 h-2.5 rounded-full bg-red-500';
+      text.textContent = 'отключено';
+    }
+
+    const voiceBadge = document.getElementById('voice-badge');
+    const voiceDot = document.getElementById('voice-dot');
+    const voiceText = document.getElementById('voice-text');
+    if (status.voice_configured) {
+      voiceBadge.classList.remove('hidden');
+      voiceBadge.classList.add('flex');
+      voiceDot.className = 'w-2.5 h-2.5 rounded-full ' + (status.listening ? 'bg-green-500' : 'bg-gray-500');
+      voiceText.textContent = status.listening ? 'слушаю' : 'голос выкл.';
+    } else {
+      voiceBadge.classList.add('hidden');
+    }
+
+    const toggleBtn = document.getElementById('toggle-listen-btn');
+    toggleBtn.textContent = status.listening ? '⏸ Остановить прослушивание' : '▶️ Включить прослушивание';
+
+    try {
+      const brain = await api().get_brain_status();
+      document.getElementById('brain-text').textContent = brain.ready ? '🧠 мозг готов' : '🧠 мозг не готов';
+    } catch (e) { /* мозг ещё не загружен */ }
+  } catch (e) { /* pywebview API ещё не готов — просто подождём следующего тика */ }
+}
+
+// ----- Лог -----
+const levelColors = { info: 'text-slate-300', success: 'text-green-400', error: 'text-red-400' };
+
+async function refreshLog() {
+  try {
+    const entries = await api().get_log();
+    const list = document.getElementById('log-list');
+    const empty = document.getElementById('log-empty');
+    empty.classList.toggle('hidden', entries.length > 0);
+    list.innerHTML = entries.slice().reverse().map(e => `
+      <div class="text-xs bg-slate-800/60 rounded px-2 py-1.5 ${levelColors[e.level] || 'text-slate-300'}">
+        <span class="text-slate-500">${e.time}</span> — ${escapeHtml(e.message)}
+      </div>
+    `).join('');
+  } catch (e) { /* тихо ждём следующего тика */ }
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// ----- Чат -----
+let currentTab = 'log';   // активная вкладка (обновляется в showTab)
+let chatUnread = 0;       // счётчик непрочитанных сообщений чата
+let lastChatLen = 0;      // длина буфера на последнем опросе
+
+function renderBadge() {
+  const badge = document.getElementById('chat-badge');
+  badge.textContent = chatUnread > 99 ? '99+' : String(chatUnread);
+  badge.classList.toggle('hidden', chatUnread <= 0);
+}
+
+async function refreshChat() {
+  try {
+    const msgs = await api().get_chat_history();
+    const list = document.getElementById('chat-list');
+    list.innerHTML = msgs.slice().map(m => `
+      <div class="text-xs rounded px-2 py-1.5 max-w-[85%] ${
+        m.role === 'user'
+          ? 'bg-blue-700/70 self-end ml-auto'
+          : m.role === 'system' ? 'bg-slate-800 text-slate-400 text-center self-center' : 'bg-slate-800/80'
+      }">
+        <span class="text-slate-500">${m.time}</span> — ${escapeHtml(m.text)}
+      </div>`).join('');
+    list.scrollTop = list.scrollHeight;
+
+    // Бейдж «новые сообщения» — растёт, пока вкладка Чат закрыта.
+    const delta = msgs.length - lastChatLen;
+    lastChatLen = msgs.length;
+    if (currentTab === 'chat') {
+      chatUnread = 0;          // вкладка открыта — всё уже прочитано
+    } else if (delta > 0) {
+      chatUnread += delta;
+    }
+    renderBadge();
+  } catch (e) {}
+}
+
+async function sendChat() {
+  const input = document.getElementById('chat-input');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  await api().send_chat(text);
+  refreshChat();
+}
+
+document.getElementById('chat-send-btn').addEventListener('click', sendChat);
+document.getElementById('chat-input').addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
+
+// ----- Настройки -----
+async function loadSettings() {
+  try {
+    const s = await api().get_settings();
+    document.getElementById('input-url').value = s.server_ws_url || '';
+    document.getElementById('input-secret').value = s.agent_secret || '';
+    document.getElementById('input-agent-id').value = s.agent_id || '';
+    document.getElementById('input-owner-id').value = s.owner_telegram_id || '';
+    document.getElementById('input-vosk-model-path').value = s.vosk_model_path || '';
+    document.getElementById('input-groq-key').value = s.groq_api_key || '';
+    document.getElementById('input-tts-voice').value = s.tts_voice || 'ru-RU-SvetlanaNeural';
+
+    const notif = await api().get_notification_settings();
+    document.getElementById('input-notif-sound').checked = notif.sound_enabled !== false;
+    document.getElementById('input-notif-toast').checked = notif.toast_enabled !== false;
+  } catch (e) { /* повторим после инициализации pywebview */ }
+}
+
+document.getElementById('save-btn').addEventListener('click', async () => {
+  const settings = {
+    server_ws_url: document.getElementById('input-url').value.trim(),
+    agent_secret: document.getElementById('input-secret').value.trim(),
+    agent_id: document.getElementById('input-agent-id').value.trim(),
+    owner_telegram_id: document.getElementById('input-owner-id').value.trim(),
+    vosk_model_path: document.getElementById('input-vosk-model-path').value.trim(),
+    groq_api_key: document.getElementById('input-groq-key').value.trim(),
+    tts_voice: document.getElementById('input-tts-voice').value.trim(),
+  };
+  await api().save_settings(settings);
+  await api().set_notification_settings({
+    sound_enabled: document.getElementById('input-notif-sound').checked,
+    toast_enabled: document.getElementById('input-notif-toast').checked,
+  });
+  const confirm = document.getElementById('save-confirm');
+  confirm.classList.remove('hidden');
+  setTimeout(() => confirm.classList.add('hidden'), 2000);
+});
+
+document.getElementById('toggle-listen-btn').addEventListener('click', async () => {
+  await api().toggle_listening();
+  refreshStatus();
+});
+
+// ----- Инициализация после готовности pywebview -----
+window.addEventListener('pywebviewready', () => {
+  loadSettings();
+  refreshStatus();
+  refreshLog();
+  refreshChat();
+  setInterval(refreshStatus, 2000);
+  setInterval(refreshLog, 2000);
+  setInterval(refreshChat, 1500);
+});
+</script>
+</body>
+</html>
